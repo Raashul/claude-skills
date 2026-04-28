@@ -1,5 +1,5 @@
 ---
-name: golang-service-init
+name: new-go-service
 description: >
   Initializes a new production-ready Go microservice with clean architecture, using opinionated default libraries: Fiber (HTTP), GORM+Postgres (database), Redis (cache), Kafka (messaging), and config.yaml for configuration. Use this skill whenever a user wants to scaffold, bootstrap, or create a new Go service, Golang microservice, backend API in Go, or Go project from scratch — even if they just say "set up a Go service" or "create a new backend". Also triggers when a user uploads a design document (PDF, markdown) and asks to implement or scaffold it in Go. Always use this skill before writing any Go code for a new service.
 ---
@@ -31,17 +31,15 @@ Never use `.env` files. All config lives in `config.yaml`.
 ## Phase 0: Requirements Gathering
 
 ### If a design document is provided
-Read it carefully. Extract:
+Read it carefully and extract without asking follow-up questions unless something critical is missing:
 - Service name and purpose
 - Entities / domain models
 - API endpoints (method, path, request/response shape)
 - Which components are needed (DB, cache, Kafka, etc.)
-- Any non-functional requirements
-
-Present a structured summary and ask the user to confirm before proceeding.
+- Any non-functional requirements (auth, rate limiting, etc.)
 
 ### If no design document is provided
-Ask the following questions **one at a time** (do not dump all at once). Wait for the user's answer before asking the next:
+Ask the following questions **one at a time**. Wait for each answer before asking the next. Skip any question whose answer is clearly implied by what was already said — state your assumption inline instead.
 
 1. **Service name**: "What should we call this service? (e.g. `order-service`)"
 2. **Purpose**: "In one or two sentences, what does this service do?"
@@ -51,80 +49,198 @@ Ask the following questions **one at a time** (do not dump all at once). Wait fo
 6. **API**: "What are the main HTTP endpoints? (e.g. POST /orders, GET /orders/:id)"
 7. **Auth**: "Is there any authentication/authorization required? (e.g. JWT middleware)"
 
-Stop asking once you have enough to write a plan. If a question's answer is clearly implied by a previous answer, skip it and state your assumption.
+Stop as soon as you have enough to write both documents.
 
 ---
 
-## Phase 1: Write PLAN.md
+## Phase 1: Write SUMMARY.md
 
-Before writing any code, produce a `PLAN.md` file in the project root. Think of this as a Kanban board broken into stages. Each stage must be small enough that the user can verify it independently.
+Once requirements are gathered, the **first file to create** is `SUMMARY.md` in the project root. This document is written once, captures your understanding of the service, and records all architecture decisions. It does **not** change as implementation progresses.
+
+### SUMMARY.md Template
+
+```markdown
+# <Service Name> — Summary
+
+## What This Service Does
+One paragraph describing the service's purpose, its consumers, and its place in the broader system.
+
+## Domain Model
+Brief description of the core entities and their relationships.
+
+| Entity     | Description                          |
+|-----------|--------------------------------------|
+| Order      | Represents a customer purchase       |
+| LineItem   | Individual product within an order   |
+
+## API Surface
+| Method | Path              | Description              |
+|--------|-------------------|--------------------------|
+| POST   | /orders           | Create a new order        |
+| GET    | /orders/:id       | Fetch order by ID         |
+| GET    | /orders           | List all orders           |
+
+## Architecture Decisions
+
+### Layers
+- **Handler** (Fiber): Parses requests, validates input, delegates to service, returns responses. No business logic.
+- **Service**: Business logic only. Calls repository interfaces and cache. Never touches DB directly.
+- **Repository**: All database access via GORM. Implements interfaces defined in the service layer.
+- **Cache**: Redis wrapper using cache-aside pattern in the service layer.
+- **Messaging**: Kafka producer/consumer in `internal/messaging/`. Wired in main.go.
+
+### Technology Choices
+| Concern     | Choice                               | Reason                                      |
+|------------|--------------------------------------|---------------------------------------------|
+| HTTP       | Fiber v2                             | Default — fast, expressive, low overhead    |
+| Database   | GORM + Postgres                      | Default — mature ORM, strong ecosystem      |
+| Cache      | go-redis v9                          | Default — official Redis client             |
+| Messaging  | segmentio/kafka-go                   | Default — idiomatic, no CGO dependency      |
+| Config     | Viper + config.yaml                  | Default — no .env, structured config        |
+| Logging    | Zap                                  | Default — structured JSON, high performance |
+| Testing    | testify/assert + testify/mock        | Default — clean assertions, easy mocks      |
+
+### Assumptions & Open Questions
+- List any assumptions made during requirements gathering
+- List anything that needs clarification before or during implementation
+```
+
+After writing SUMMARY.md, show it to the user and ask:
+
+> "Here's my understanding of the service and the architecture decisions. Does this look right? Any corrections before I plan the implementation?"
+
+**Wait for confirmation before writing PLAN.md.**
+
+---
+
+## Phase 2: Write PLAN.md
+
+After the user confirms SUMMARY.md, create `PLAN.md`. This is a **living document** — a task tracker that gets updated throughout implementation. Treat it like a Kanban board: tasks move from `[ ]` to `[x]` as they are completed. Add notes, timestamps, or findings as relevant.
 
 ### PLAN.md Template
 
 ```markdown
-# Service Name — Implementation Plan
+# <Service Name> — Implementation Plan
 
-## Overview
-Brief description of the service.
+> Last updated: Stage N — <stage name>
 
-## Architecture
-- HTTP Layer: Fiber handlers → Service layer → Repository layer → DB/Cache/Kafka
-- Config: config.yaml via Viper
-- Logging: Zap (structured JSON logs)
+## Stages
 
-## Stage Breakdown
+### Stage 1 — Project Skeleton
+**Status**: 🔲 Not started | 🔄 In progress | ✅ Done
 
-### Stage 1 — Project Skeleton ✅ (start here)
-- [ ] go.mod + dependencies
-- [ ] config.yaml + config loader
-- [ ] main.go (clean, delegates to app bootstrap)
-- [ ] internal/config/config.go
-- [ ] internal/server/server.go (Fiber setup)
-- [ ] Health check endpoint: GET /health
+Tasks:
+- [ ] go.mod with all dependencies
+- [ ] config.yaml + internal/config/config.go (Viper loader)
+- [ ] cmd/main.go — clean bootstrap, graceful shutdown
+- [ ] internal/server/server.go — Fiber setup, route registration stub
+- [ ] Health check: GET /health → `{"status":"ok","service":"<name>"}`
 - [ ] Tests: config loading, health endpoint
 
-### Stage 2 — Domain Models & Database
-- [ ] internal/models/ — GORM structs
-- [ ] internal/repository/ — DB interface + implementation
-- [ ] DB connection + auto-migrate
-- [ ] Tests: repository unit tests (mocked DB)
-
-### Stage 3 — Service Layer
-- [ ] internal/service/ — business logic
-- [ ] Wires repository → service
-- [ ] Tests: service unit tests (mocked repository)
-
-### Stage 4 — HTTP Handlers
-- [ ] internal/handler/ — Fiber route handlers
-- [ ] Route registration
-- [ ] Request validation
-- [ ] Tests: handler integration tests
-
-### Stage 5 — Cache Layer (if needed)
-- [ ] internal/cache/ — Redis client wrapper
-- [ ] Cache-aside pattern in service layer
-- [ ] Tests: cache unit tests
-
-### Stage 6 — Kafka (if needed)
-- [ ] internal/messaging/ — producer + consumer
-- [ ] Consumer group setup
-- [ ] Tests: producer/consumer tests
-
-### Stage 7 — Polish
-- [ ] Graceful shutdown
-- [ ] Structured logging throughout
-- [ ] README.md
+Verification:
 ```
-
-After writing PLAN.md, present it to the user and say:
-
-> "Here's the plan. Please review it. When you're ready, say **'start Stage 1'** and I'll begin implementing."
-
-**Do not write any code until the user confirms the plan.**
+go run ./cmd/main.go
+curl http://localhost:8080/health
+go test ./...
+```
 
 ---
 
-## Phase 2: Stage Implementation
+### Stage 2 — Domain Models & Database
+**Status**: 🔲 Not started
+
+Tasks:
+- [ ] internal/models/ — GORM structs for each entity
+- [ ] internal/repository/ — interfaces + Postgres implementations
+- [ ] DB connection helper + auto-migrate in server bootstrap
+- [ ] Tests: repository unit tests (sqlmock or in-memory SQLite)
+
+---
+
+### Stage 3 — Service Layer
+**Status**: 🔲 Not started
+
+Tasks:
+- [ ] internal/service/ — business logic, one file per domain
+- [ ] Wire: repository → service in main.go
+- [ ] Tests: service unit tests (mocked repository)
+
+---
+
+### Stage 4 — HTTP Handlers
+**Status**: 🔲 Not started
+
+Tasks:
+- [ ] internal/handler/ — Fiber handlers, one file per domain
+- [ ] Register routes in server.go
+- [ ] Request body validation
+- [ ] Tests: handler tests using Fiber test helpers
+
+---
+
+### Stage 5 — Cache Layer
+**Status**: 🔲 Not started | _(skip if not needed)_
+
+Tasks:
+- [ ] internal/cache/ — Redis client wrapper (Get/Set/Delete)
+- [ ] Cache-aside in service layer for hot read paths
+- [ ] Tests: cache unit tests (mock Redis)
+
+---
+
+### Stage 6 — Kafka
+**Status**: 🔲 Not started | _(skip if not needed)_
+
+Tasks:
+- [ ] internal/messaging/producer.go
+- [ ] internal/messaging/consumer.go + handler func
+- [ ] Wire consumer Start() in main.go with context/shutdown
+- [ ] Tests: producer publish + consumer handler tests
+
+---
+
+### Stage 7 — Polish
+**Status**: 🔲 Not started
+
+Tasks:
+- [ ] Graceful shutdown for all components (DB, Redis, Kafka, Fiber)
+- [ ] Structured Zap logging throughout all layers
+- [ ] README.md with setup, run, and test instructions
+
+---
+
+## Completed Stages Log
+_(Updated as each stage is verified and confirmed by user)_
+
+| Stage | Name               | Completed | Notes |
+|-------|--------------------|-----------|-------|
+|       |                    |           |       |
+```
+
+Present PLAN.md to the user and say:
+
+> "Here's the implementation plan. I'll keep this updated as we go — checking off tasks and logging each completed stage. Say **'start Stage 1'** when you're ready."
+
+**Do not write any code until the user says to start.**
+
+### Keeping PLAN.md Current
+
+**This is mandatory after every stage — do not skip it.**
+
+Immediately after finishing a stage's code and tests, before presenting anything to the user, edit PLAN.md using a file write/edit tool. Do not just describe what you would update — actually write the changes to the file.
+
+Checklist for every PLAN.md update:
+1. Every completed task: change `- [ ]` → `- [x]`
+2. Stage status line: change to `**Status**: ✅ Done`
+3. Header: update `> Last updated: Stage N — <name>`
+4. Completed Stages Log: add a new row with stage number, name, date, and a one-line note
+5. Next stage: change its status to `**Status**: 🔄 In progress`
+
+PLAN.md must always reflect the true current state. If a task was completed, it must be checked off. A task left as `[ ]` after it was done is a bug.
+
+---
+
+## Phase 3: Stage Implementation
 
 Implement one stage at a time. Only move to the next stage when the user explicitly confirms (e.g., "looks good, continue", "start Stage 2").
 
@@ -222,22 +338,34 @@ After each stage, run (conceptually) `go test ./...` and confirm tests pass befo
 
 ---
 
-## Phase 3: Stage Completion Protocol
+## Phase 4: Stage Completion Protocol
 
-After implementing each stage, present to the user:
+After implementing each stage, do two things in order:
+
+**1. Edit PLAN.md first** — use a file write tool to make these changes before saying anything to the user:
+- `- [ ]` → `- [x]` for every completed task in this stage
+- Stage status → `**Status**: ✅ Done`
+- `> Last updated:` header → current stage name
+- Completed Stages Log → new row added
+- Next stage status → `**Status**: 🔄 In progress`
+
+Only after PLAN.md is saved on disk, present the summary.
+
+**2. Present a summary to the user:**
 
 ```
-✅ Stage N complete.
+✅ Stage N — <name> complete.
 
-Files created:
+Files created/modified:
 - path/to/file1.go
-- path/to/file2.go
 - path/to/file1_test.go
 
+PLAN.md updated ✓
+
 To verify:
-1. Run: go run ./cmd/main.go
-2. Test: curl http://localhost:8080/health
-3. Unit tests: go test ./internal/...
+1. go run ./cmd/main.go
+2. curl http://localhost:8080/health
+3. go test ./internal/...
 
 When you're ready, say "start Stage N+1" to continue.
 ```
@@ -248,13 +376,14 @@ When you're ready, say "start Stage N+1" to continue.
 
 ## Handling Design Documents
 
-If the user uploads a PDF or markdown design doc:
-1. Read and extract: service name, entities, endpoints, integrations
-2. Map each entity → GORM model
-3. Map each endpoint → handler + service method + repository method
-4. Identify which default libraries are needed
-5. Present the extracted plan as PLAN.md content for confirmation
-6. Proceed with stage implementation on user confirmation
+If the user uploads a PDF or markdown design doc, use it as the source of truth for Phase 0. Extract:
+- Service name, purpose, and bounded context
+- All entities → will become GORM models
+- All endpoints → will become handlers + service methods + repository methods
+- Integrations (DB, cache, Kafka, external APIs)
+- Non-functional requirements (auth, SLAs, rate limits)
+
+Map everything to the standard layer structure. If anything is ambiguous, list it as an "Open Question" in SUMMARY.md and ask the user after presenting the summary — not before.
 
 ---
 
