@@ -80,6 +80,9 @@ After receiving a response, evaluate it against one of these states:
 **⏭️ Skipped** — The user explicitly says "Skip", "Skip this", "Move on", or similar. Acknowledge the skip, note it will be flagged as TBD, and proceed. Example:
 - "Noted — marking this as **TBD / Skipped**. We'll flag it in the report. Moving on."
 
+
+Keep in mind that user might ask a follow up question on top of your question. This is like going back and forth to clarify questions or confusions. In this case, clarify the users question but ensure after the clarification, there is a resolution or if they skipped answering.
+
 **Only advance to the next question when the answer is ✅ Answered or ⏭️ Skipped.**
 
 ### Format per question:
